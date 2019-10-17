@@ -1,0 +1,6 @@
+Open either:
+
+Toon Shading/index.html
+Instantiation/index2.html
+
+and use the GUI, move with W,A,S,D or the mouse
