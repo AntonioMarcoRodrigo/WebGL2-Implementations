@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title> Basic WebGL2 Scene</title>
+
+    <script type="text/javascript" src="gl-matrix-min.js"></script>
+    <script type="text/javascript" src="shaderManager.js"></script>
+    <script type="text/javascript" src="utils.js"></script>
+    <script type="text/javascript" src="models.js"></script>
+	<script type="text/javascript" src="dat.gui.js"></script>
+    
+    <script id="vs" type="x-shader/x-vertex">#version 300 es
+        #define POSITION_LOCATION 0
+        #define COLOR_LOCATION 1
+        in vec2 position;
+        in vec3 color; 
+
+        uniform mat4 projection;
+        uniform mat4 view;
+        uniform mat4 model;
+
+        out vec3 vColor;
+
+        precision highp float;
+        precision highp int;
+
+        void main(void) 
+        { 
+            if (gl_InstanceID % 2 == 0)
+                vColor = vec3 (0.2, 0.2, 0.2); //Si la instancia es par, le asignamos siempre gris oscuro
+            else
+                vColor = color; //Si es impar, le asignamos un color distinto mas adelante con gl.vertexAttribDivisor()
+            
+            gl_Position = projection*view*model*vec4(position + vec2(float(gl_InstanceID)/0.5 - 4.0, 0.0), 0.0, 1.5);
+        }
+    </script>
+
+    <script id="fs" type="x-shader/x-vertex">#version 300 es
+        precision mediump float;
+
+        in vec3 vColor;
+        out vec4 outColor;
+
+        void main(void) 
+        {
+            outColor = vec4(vColor, 1.);
+        }
+    </script>
+
+</head>
+<body>
+<canvas id="glCanvas"></canvas>
+<script type="text/javascript"> 
+
+var text = {
+      instances: 1,
+  };
+
+  var gui = new dat.GUI();
+  var menu = gui.addFolder('Change Number of Instances');
+
+  menu.add(text, 'instances', 1, 6);
+
+    //http://glmatrix.net/docs/module-mat4.html
+    var canvas;
+
+    var shaderProgram;
+    var projectionLoc, viewLoc, modelLoc;
+    var colorLoc, positionLoc;
+
+    var perspMat, viewMat, modelMat;
+
+    var meshVertexs;
+    var meshIndexs;
+
+    var vertexBuff;
+    var indexBuff;
+
+    var instances = 1;
+
+    var position_buffer;
+    var color_buffer;
+
+    var drag    = false;
+    var prevX=0, prevY=0, dX=0, dY=0, rotX=0, rotY=0;
+
+    function mouseDown(e) 
+    {
+        drag = true;
+        prevX = e.pageX;
+        prevY = e.pageY;
+        e.preventDefault();
+    };
+ 
+    function mouseUp(e)
+    {
+        drag=false;
+    };
+  
+    function mouseMove(e) 
+    {
+        if (drag)
+        {
+            dX  =   (e.pageX-prevX)*2*Math.PI/canvas.width,
+            dY  =   (e.pageY-prevY)*2*Math.PI/canvas.height;
+            rotX += dX;
+            if ( Math.abs(rotY+dY) < (Math.PI/2.0) ) rotY+=dY;
+            prevX = e.pageX;
+            prevY = e.pageY;
+            e.preventDefault();
+        }
+    };
+
+    //Init function
+    function init( )
+    {
+        canvas = document.getElementById( "glCanvas" ); 
+        canvas.width    = window.innerWidth;
+        canvas.height   = window.innerHeight;    
+        
+        //Context Inicialization
+        try 
+        {
+            gl = canvas.getContext("webgl2");
+        } catch (e) 
+        {
+            alert("Your browser is not webgl2 compatible!!!") ;
+            throw "Unable to initialize WebGL2 context";
+        }
+
+        //Add events
+        canvas.addEventListener( "mousedown", mouseDown, false );
+        canvas.addEventListener( "mouseup", mouseUp, false );
+        canvas.addEventListener( "mouseout", mouseUp, false );
+        canvas.addEventListener( "mousemove", mouseMove, false );
+
+        //Shader inicialization
+        shaderProgram = new ShaderManager( );
+        shaderProgram.createShader( document.getElementById( "vs" ).text, gl.VERTEX_SHADER );
+        shaderProgram.createShader( document.getElementById( "fs" ).text, gl.FRAGMENT_SHADER );
+        shaderProgram.createProg( );
+
+        shaderProgram.linkProg( );
+        shaderProgram.useProg( );
+    
+        //Attach Matrices
+        projLoc = gl.getUniformLocation(shaderProgram.program, "projection");
+        viewLoc = gl.getUniformLocation(shaderProgram.program, "view");
+        modelLoc = gl.getUniformLocation(shaderProgram.program, "model");
+    
+        //Connect Buffers
+        positionLoc = gl.getAttribLocation(shaderProgram.program, "position");
+        gl.bindBuffer(gl.ARRAY_BUFFER, position_buffer);
+        gl.vertexAttribPointer(positionLoc, 3, gl.FLOAT, false, 0, null);
+        gl.enableVertexAttribArray(positionLoc);
+
+        colorLoc = gl.getAttribLocation(shaderProgram.program, "color");     
+        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer);
+        gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, null);
+        gl.enableVertexAttribArray(colorLoc);
+
+        //UHacemos que el color de la instancia cambie por cada dos instancias dibujadas
+        gl.vertexAttribDivisor(colorLoc, 2);
+
+        //Buffer creation
+        meshVertexs = triVertices; //triVertices;
+        meshIndexs = triFaces; //triFaces;
+        vertexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuff);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshVertexs),gl.STATIC_DRAW);
+
+        indexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuff);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(meshIndexs), gl.STATIC_DRAW);
+
+        //Matrices setup
+        perspMat = glMatrix.mat4.create();
+        glMatrix.mat4.perspective(perspMat, 45, canvas.width/canvas.height, 1, 10);
+        modelMat = glMatrix.mat4.create();
+        viewMat = glMatrix.mat4.create();
+        glMatrix.mat4.fromTranslation(viewMat, glMatrix.vec3.fromValues(0, 0, -5));
+
+        gl.uniformMatrix4fv(projLoc, false, perspMat);
+        gl.uniformMatrix4fv(viewLoc, false, viewMat);
+
+        //Prepare render
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clearDepth(1.0);
+    }
+
+    //Draw function
+    function draw (time) 
+    {
+        if (!drag) dX=dY=0;
+        
+        //Matrix updates
+        glMatrix.mat4.identity(modelMat);
+        glMatrix.mat4.fromYRotation(modelMat, rotX);
+        glMatrix.mat4.rotate(modelMat, modelMat, rotY, glMatrix.vec3.fromValues(1, 0, 0));
+  
+        //Rendering
+        gl.viewport(0.0, 0.0, canvas.width, canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        gl.uniformMatrix4fv(modelLoc, false, modelMat);
+
+        //https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/vertexAttribPointer
+        var meshElementSize = 4*(3+3); //4 bytes * (pos + color)
+        var meshColorOffset = 4*3; //4 bytes * (pos)
+        gl.vertexAttribPointer(positionLoc, 3, gl.FLOAT, false, meshElementSize, 0);
+        gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, meshElementSize, meshColorOffset);
+        
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 3, instances);
+        
+        gl.flush();
+
+        //Actualizacion de los valores de la GUI
+        instances = text.instances;
+
+        window.requestAnimationFrame(draw);
+    };
+
+    init();
+    draw(0);
+
+</script>
+</body>
+</html>

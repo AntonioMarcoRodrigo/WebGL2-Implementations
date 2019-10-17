@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title> Basic WebGL2 Scene</title>
+
+    <script type="text/javascript" src="gl-matrix-min.js"></script>
+
+    <script type="text/javascript" src="shaderManager.js"></script>
+    <script type="text/javascript" src="utils.js"></script>
+    <script type="text/javascript" src="models.js"></script>
+    <script type="text/javascript" src="dat.gui.js"></script>
+
+    
+    <script id="vs" type="x-shader/x-vertex">#version 300 es
+        in vec3 position;
+        in vec3 color;
+        in vec3 normal; 
+
+        uniform mat4 projection;
+        uniform mat4 view;
+        uniform mat4 model;
+        uniform mat4 normal_mat;
+        uniform mat4 light;
+        
+
+        out vec3 norm;
+        out vec3 pos;
+        out vec3 lpos;
+        out vec3 cam;
+        out float edge;
+
+        void main(void) 
+        { 
+            vec3 lp = vec3(1,1,1);
+            gl_Position = projection*view*model*vec4(position, 1.);
+
+            norm = (normal_mat * vec4(normal, 0.0)).xyz;
+            pos = (model * vec4(position, 1.0)).xyz;
+            lpos = (light* vec4(lp, 1.0)).xyz;
+            cam = vec3(view[3][0], view[3][1], view[3][2]);
+            edge = 0.5;
+
+        }
+    </script>
+
+    <script id="fs" type="x-shader/x-vertex">#version 300 es
+        precision mediump float;
+
+        in vec3 norm;
+        in vec3 pos;
+        in vec3 lpos;
+        in vec3 cam;
+        
+        uniform float edge_size;
+        uniform float num;
+
+        out vec4 outColor;
+
+        //Propiedades del objeto
+        vec3 Ka;
+        vec3 Kd;
+        vec3 Ks;
+        vec3 N;
+        float alpha = 10.0;
+        vec3 vColor = vec3 (0,0,1);
+
+        //Propiedades de la luz
+        vec3 Il = vec3 (1.0);
+        vec3 Ia = vec3(0.3);
+
+        vec3 shade()
+        {
+            vec3 c = vec3(0.0);
+
+            c = Ia * Ka; //ambient
+            
+            N = normalize (norm);
+	        vec3 L = normalize (lpos - pos);
+	        vec3 diffuse = Il * Kd * max(dot (L,N),0.0); //diffuse
+	        c += clamp(diffuse,0.0,1.0);
+
+
+            vec3 V = normalize (cam-pos);
+            float NdotV = max(dot (N,-V),0.0);
+            vec3 H = normalize((L+V)/((L+V)/2.0));
+            float NdotH = max (dot (N,H), 0.0);
+	        vec3 R = normalize (reflect (-L,N));
+            float RdotV = max (dot (R,-V), 0.0);
+	        vec3 specular = Il*Ks*pow(NdotH,alpha);
+	        c += clamp(specular,0.0,1.0);
+
+            
+            if(NdotV<edge_size)
+            {
+                c = vec3(0.0);
+            }
+	        return c;
+        }       
+
+        void main(void) 
+        {
+            Ka = vColor;
+            Kd = vColor;
+            Ks = vec3 (1.0);
+                    
+            outColor = vec4(shade(), 1.0);
+            outColor = (ceil(outColor*num))/num;
+            
+        }
+    </script>
+
+</head>
+<body>
+<canvas id="glCanvas"></canvas>
+<script type="text/javascript"> 
+    //http://glmatrix.net/docs/module-mat4.html
+    var canvas;
+
+    var shaderProgram;
+    var projectionLoc, viewLoc, modelLoc, lightLoc, normalMatLoc;
+    var colorLoc, positionLoc, normalLoc, edgeLoc, divLoc;
+    var edge = 0.5;
+    var divisions = 4.0;
+
+    var perspMat, viewMat, modelMat, lightMat, normalMat;
+    var model = 3;
+    var newmodel = 3;
+    var vert = torusVertices;
+    var norm = torusNormals;
+    var ind = torusIndices;
+
+    var meshVertexs;
+    var meshNormals;
+    var meshIndexs;
+
+    var vertexBuff;
+    var indexBuff;
+    var normalBuff;
+
+    var drag    = false;
+    var prevX = 0, prevY = 0, dX = 0, dY = 0, modelRotX = 0, modelRotY = 0, viewX = 0, viewY = 0, viewZ = -5, angle = 0, lightX = 0, lightY = 5, lightZ = 0;
+    
+    var aPressed = false;
+
+//GUI
+var gui = new dat.GUI();
+    var text = {
+        cube: function() {
+            vert = cubeVertices; 
+            ind = cubeIndices; 
+            norm = cubeNormals;
+            newmodel = 1;
+        },
+        sphere: function() {
+            vert = sphereVertices; 
+            ind = sphereIndices; 
+            norm = sphereNormals;
+            newmodel = 2;
+        },
+        torus: function() {
+            vert = torusVertices; 
+            ind = torusIndices; 
+            norm = torusNormals;
+            newmodel = 3;
+        },
+        LightX: 0,
+        LightY: 5,
+        LightZ: 0,
+        Edge: 0.5,
+        Divisions: 4.0
+    };
+    var menu = gui.addFolder('Models');
+
+    menu.add(text, 'cube');
+    menu.add(text, 'sphere');
+    menu.add(text, 'torus');
+
+    var light_gui = gui.addFolder('Light position');
+    light_gui.add(text,'LightX'); 
+    light_gui.add(text,'LightY'); 
+    light_gui.add(text,'LightZ');   
+    
+
+    var toon_gui = gui.addFolder('Toon params');
+    toon_gui.add(text, 'Edge'); 
+    toon_gui.add(text, 'Divisions'); 
+
+
+    function mouseDown(e) 
+    {
+        drag = true;
+        prevX = e.pageX;
+        prevY = e.pageY;
+        e.preventDefault();
+    };
+ 
+    function mouseUp(e)
+    {
+        drag=false;
+    };
+  
+    function mouseMove(e) 
+    {
+        if (drag)
+        {
+            dX  =   (e.pageX-prevX)*2*Math.PI/canvas.width,
+            dY  =   (e.pageY-prevY)*2*Math.PI/canvas.height;
+            modelRotX += dX;
+            if ( Math.abs(modelRotY+dY) < (Math.PI/2.0) ) modelRotY+=dY;
+            prevX = e.pageX;
+            prevY = e.pageY;
+            e.preventDefault();
+        }
+    };
+
+    function keyDownHandler(e) {
+        if (e.key == 'w') viewZ += 0.05;
+        if (e.key == 's') viewZ -= 0.05;
+        if (e.key == 'a') viewX += 0.05;
+        if (e.key == 'd') viewX -= 0.05;
+        if (e.key == 'r') viewY -= 0.05;
+        if (e.key == 'f') viewY += 0.05;
+        if (e.key == 'q') angle -= 0.05;
+        if (e.key == 'e') angle += 0.05;
+    };
+
+    function changeModel(){
+        meshVertexs = vert; 
+        meshIndexs = ind; 
+        meshNormals =norm;
+        vertexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuff);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshVertexs),gl.STATIC_DRAW);
+
+        indexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuff);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(meshIndexs), gl.STATIC_DRAW);
+
+        normalBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuff);
+        gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(meshNormals), gl.STATIC_DRAW);
+        model = newmodel;
+    };
+
+    //Init function
+    function init( )
+    {
+        canvas = document.getElementById( "glCanvas" ); 
+        canvas.width    = window.innerWidth;
+        canvas.height   = window.innerHeight;    
+        
+        //Context Inicialization
+        try 
+        {
+            gl = canvas.getContext("webgl2");
+        } catch (e) 
+        {
+            alert("Your browser is not webgl2 compatible!!!") ;
+            throw "Unable to initialize WebGL2 context";
+        }
+
+        //Add events
+        canvas.addEventListener( "mousedown", mouseDown, false );
+        canvas.addEventListener( "mouseup", mouseUp, false );
+        canvas.addEventListener( "mouseout", mouseUp, false );
+        canvas.addEventListener("mousemove", mouseMove, false);
+        window.addEventListener('keydown', keyDownHandler, false);
+
+        //Shader inicialization
+        shaderProgram = new ShaderManager( );
+        shaderProgram.createShader( document.getElementById( "vs" ).text, gl.VERTEX_SHADER );
+        shaderProgram.createShader( document.getElementById( "fs" ).text, gl.FRAGMENT_SHADER );
+        shaderProgram.createProg( );
+        shaderProgram.linkProg( );
+        shaderProgram.useProg( );
+    
+        //Attach Matrices
+        projLoc = gl.getUniformLocation(shaderProgram.program, "projection");
+        viewLoc = gl.getUniformLocation(shaderProgram.program, "view");
+        modelLoc = gl.getUniformLocation(shaderProgram.program, "model");
+        lightLoc = gl.getUniformLocation(shaderProgram.program, "light");
+        normalMatLoc =  gl.getUniformLocation(shaderProgram.program, "normal_mat");
+        edgeLoc   = gl.getUniformLocation(shaderProgram.program, "edge_size");
+        divLoc   = gl.getUniformLocation(shaderProgram.program, "num");
+    
+        //Connect Buffers
+        //colorLoc      = gl.getAttribLocation(shaderProgram.program, "color");
+        positionLoc   = gl.getAttribLocation(shaderProgram.program, "position");
+        normalLoc   = gl.getAttribLocation(shaderProgram.program, "normal");
+
+        //gl.enableVertexAttribArray(colorLoc);
+        gl.enableVertexAttribArray(positionLoc);
+        gl.enableVertexAttribArray(normalLoc);
+        
+
+        //Buffer creation
+
+        meshVertexs = vert; 
+        meshIndexs = ind; 
+        meshNormals =norm;
+
+        vertexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuff);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshVertexs),gl.STATIC_DRAW);
+
+        indexBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuff);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(meshIndexs), gl.STATIC_DRAW);
+
+        normalBuff= gl.createBuffer ();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuff);
+        gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(meshNormals), gl.STATIC_DRAW);
+
+        //Matrices setup
+        perspMat = glMatrix.mat4.create();
+        glMatrix.mat4.perspective(perspMat, 70, canvas.width/canvas.height, 0.1, 10);
+        modelMat = glMatrix.mat4.create();
+        lightMat = glMatrix.mat4.create();
+        glMatrix.mat4.fromTranslation(lightMat, glMatrix.vec3.fromValues(lightX,lightY, lightZ));
+        viewMat = glMatrix.mat4.create();
+        glMatrix.mat4.fromTranslation(viewMat, glMatrix.vec3.fromValues(0, 0, -5));
+        normalMat = glMatrix.mat4.create();
+
+        gl.uniformMatrix4fv(projLoc, false, perspMat);
+        gl.uniformMatrix4fv(viewLoc, false, viewMat);
+        gl.uniformMatrix4fv(lightLoc, false, lightMat);
+        gl.uniformMatrix4fv(normalMatLoc, false, normalMat);
+        gl.uniform1f(edgeLoc, edge);
+        gl.uniform1f(divLoc, divisions);
+
+        //Prepare render
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clearDepth(1.0);
+    }
+    //Draw funtion
+    function draw (time) 
+    {
+        if(model!=newmodel){
+            changeModel();
+        }
+
+        if (!drag) dX=dY=0;
+        
+        //Matrix updates
+
+        //Model matrix
+        glMatrix.mat4.identity(modelMat);
+        glMatrix.mat4.fromYRotation(modelMat, modelRotX);
+        glMatrix.mat4.rotate(modelMat, modelMat, modelRotY, glMatrix.vec3.fromValues(1, 0, 0));
+        
+        //Normal matrix
+        glMatrix.mat4.invert(normalMat,modelMat);
+        glMatrix.mat4.transpose(normalMat,normalMat);
+        
+
+        //View matrix
+        
+        viewMat = glMatrix.mat4.create();
+        glMatrix.mat4.rotate(viewMat, viewMat, angle, glMatrix.vec3.fromValues(0, 1, 0));
+        glMatrix.mat4.translate(viewMat, viewMat, glMatrix.vec3.fromValues(viewX, viewY, viewZ));
+
+        //Light matrix
+        lightMat = glMatrix.mat4.create();
+        glMatrix.mat4.fromTranslation(lightMat, glMatrix.vec3.fromValues(lightX,lightY, lightZ));
+
+  
+        //Rendering
+        gl.viewport(0.0, 0.0, canvas.width, canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        gl.uniformMatrix4fv(modelLoc, false, modelMat);
+        gl.uniformMatrix4fv(viewLoc, false, viewMat);
+        gl.uniformMatrix4fv(normalMatLoc, false, normalMat);
+        gl.uniformMatrix4fv(lightLoc, false, lightMat);
+
+        gl.uniform1f(edgeLoc, edge);
+        gl.uniform1f(divLoc, divisions);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuff);
+
+        //https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/vertexAttribPointer
+        var meshElementSize = 4*3; //4 bytes * pos/normal
+        //var meshColorOffset = 4*3; //4 bytes * (pos)
+        gl.vertexAttribPointer(positionLoc, 3, gl.FLOAT, false, meshElementSize,   0 ) ;
+        //gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false,  meshElementSize, meshColorOffset ) ;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuff);
+        gl.vertexAttribPointer(normalLoc, 3, gl.FLOAT, false,  meshElementSize, 0) ;
+        
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuff);
+
+              
+        gl.drawElements(gl.TRIANGLES, meshIndexs.length , gl.UNSIGNED_SHORT, 0);
+        
+        gl.flush();
+        //Actualizacion de los valores de la GUI
+        lightX = text.LightX;
+        lightY = text.LightY;
+        lightZ = text.LightZ;
+        edge = text.Edge;
+        divisions = text.Divisions;
+        window.requestAnimationFrame(draw);
+    };
+
+    init();
+    draw(0);
+
+</script>
+</body>
+</html>

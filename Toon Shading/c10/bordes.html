@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title> Informatica Grafica </title>
+    <style>
+      canvas {border: 1px solid black; background: black;}
+    </style>
+  </head>
+  
+  <body>
+
+     <canvas id="myCanvas" width="660" height="660">
+       El navegador no soporta HTML5
+    </canvas>
+    <script id="myVertexShaderFBO" type="x-shader/x-vertex">
+      
+      uniform   mat4 projectionMatrix;
+      uniform   mat4 modelViewMatrix;
+      uniform   mat3 normalMatrix;
+      
+      attribute vec3 VertexPosition;
+      attribute vec3 VertexNormal;
+
+      varying vec3 N, ec;
+
+      void main()  {
+      
+        N               = normalize(normalMatrix * VertexNormal);
+        vec4 ecPosition = modelViewMatrix * vec4(VertexPosition,1.0);
+        ec              = vec3(ecPosition);
+        
+        gl_Position = projectionMatrix * ecPosition;
+
+      }
+      
+    </script>
+    
+    <script id="myFragmentShaderFBO" type="x-shader/x-fragment">
+      
+      precision highp float;
+      
+      struct LightData {
+        vec3 Position;
+        vec3 La;
+        vec3 Ld;
+        vec3 Ls;
+      };
+    uniform LightData Light;
+    
+    struct MaterialData {
+      vec3 Ka;
+      vec3 Kd;
+      vec3 Ks;
+      float alpha;
+    };
+    uniform MaterialData Material;
+    
+      varying vec3  N, ec;
+
+      vec3 phong (vec3 N, vec3 L, vec3 V) {
+      
+        vec3  ambient  = Material.Ka * Light.La;
+        vec3  diffuse  = vec3(0.0);
+        vec3  specular = vec3(0.0);
+        
+        float NdotL    = dot (N,L);
+        
+        if (NdotL > 0.0) {
+          vec3  R       = reflect(-L, N);;
+          float RdotV_n = pow(max(0.0, dot(R,V)), Material.alpha);
+          
+          diffuse  = NdotL   * (Light.Ld * Material.Kd);
+          specular = RdotV_n * (Light.Ls * Material.Ks);
+        }
+        
+        return (ambient + diffuse + specular);
+      }
+
+      void main() {
+
+        vec3 n = normalize(N);
+        vec3 L = normalize(Light.Position - ec);
+        vec3 V = normalize(-ec);
+      
+        vec3 myColor = phong(n,L,V);
+
+        gl_FragColor = vec4(myColor,1.0);
+      
+      }
+      
+    </script>
+    
+    <script id="myVertexShader" type="x-shader/x-vertex">
+      
+      attribute vec3 VertexPosition;
+      attribute vec2 VertexTexcoords;
+
+      varying vec2 texCoords;
+
+      void main()  {
+      
+        gl_Position = vec4(VertexPosition, 1.0);
+        texCoords   = VertexTexcoords;
+
+      }
+      
+    </script>
+    
+    <script id="myFragmentShader" type="x-shader/x-fragment">
+      
+      precision highp float;
+      
+      uniform sampler2D myTexture;
+      uniform float kernel[9];
+
+      varying vec2 texCoords;
+
+
+      void main() {
+        
+        if (texCoords.s<1.5){
+        vec2 onePixel = vec2(1.0, 1.0) / 660.0;
+        vec4 colorSum =
+          texture2D(myTexture, texCoords + onePixel * vec2(-1, -1)) * kernel[0] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 0, -1)) * kernel[1] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 1, -1)) * kernel[2] +
+          texture2D(myTexture, texCoords + onePixel * vec2(-1,  0)) * kernel[3] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 0,  0)) * kernel[4] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 1,  0)) * kernel[5] +
+          texture2D(myTexture, texCoords + onePixel * vec2(-1,  1)) * kernel[6] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 0,  1)) * kernel[7] +
+          texture2D(myTexture, texCoords + onePixel * vec2( 1,  1)) * kernel[8] ;
+        
+        gl_FragColor =  colorSum*4.0;
+        }
+        else
+        gl_FragColor = texture2D(myTexture, texCoords);
+
+      }
+    
+    </script>
+
+    <script src="common/gl-matrix-min.js"></script>
+    <script src="common/materiales.js"></script>
+    <script src="common/primitivas.js"></script>
+    <script src="common/comun.js"></script>
+    <script src="bordes.js"></script>
+
+  </body>
+  
+</html>

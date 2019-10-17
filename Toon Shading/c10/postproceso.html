@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title> Informatica Grafica </title>
+    <style>
+      canvas {border: 1px solid black; background: black;}
+    </style>
+  </head>
+  
+  <body>
+    <strong>La: </strong><input type="color" name="La" value="#ffffff">
+    <strong>Ld: </strong><input type="color" name="Ld" value="#ffffff">
+    <strong>Ls: </strong><input type="color" name="Ls" value="#ffffff"><br>
+    <strong>Brightness: </strong><input type="range" name="Brightness" min="0" max="100" value="25"><br>
+    <strong>Saturation: </strong><input type="range" name="Saturation" min="0" max="100" value="50"><br>
+    <strong>Contrast: </strong><input type="range" name="Contrast" min="0" max="100" value="50"><br>
+     <canvas id="myCanvas" width="660" height="660">
+       El navegador no soporta HTML5
+    </canvas>
+    <script id="myVertexShaderFBO" type="x-shader/x-vertex">
+      
+      uniform   mat4 projectionMatrix;
+      uniform   mat4 modelViewMatrix;
+      uniform   mat3 normalMatrix;
+      
+      attribute vec3 VertexPosition;
+      attribute vec3 VertexNormal;
+
+      varying vec3 N, ec;
+
+      void main()  {
+      
+        N               = normalize(normalMatrix * VertexNormal);
+        vec4 ecPosition = modelViewMatrix * vec4(VertexPosition,1.0);
+        ec              = vec3(ecPosition);
+        
+        gl_Position     = projectionMatrix * ecPosition;
+
+      }
+      
+    </script>
+    
+    <script id="myFragmentShaderFBO" type="x-shader/x-fragment">
+      
+      precision highp float;
+      
+      struct LightData {
+        vec3 Position;
+        vec3 La;
+        vec3 Ld;
+        vec3 Ls;
+      };
+    uniform LightData Light;
+    
+    struct MaterialData {
+      vec3 Ka;
+      vec3 Kd;
+      vec3 Ks;
+      float alpha;
+    };
+    uniform MaterialData Material;
+    
+      varying vec3  N, ec;
+
+      vec3 phong (vec3 N, vec3 L, vec3 V) {
+      
+        vec3  ambient  = Material.Ka * Light.La;
+        vec3  diffuse  = vec3(0.0);
+        vec3  specular = vec3(0.0);
+        
+        float NdotL    = dot (N,L);
+        
+        if (NdotL > 0.0) {
+          vec3  R       = reflect(-L, N);;
+          float RdotV_n = pow(max(0.0, dot(R,V)), Material.alpha);
+          
+          diffuse  = NdotL   * (Light.Ld * Material.Kd);
+          specular = RdotV_n * (Light.Ls * Material.Ks);
+        }
+        
+        return (ambient + diffuse + specular);
+      }
+
+      void main() {
+
+        vec3 n = normalize(N);
+        vec3 L = normalize(Light.Position - ec);
+        vec3 V = normalize(-ec);
+      
+        vec3 myColor = phong(n,L,V);
+
+        gl_FragColor = vec4(myColor,1.0);
+      
+      }
+      
+    </script>
+    
+    <script id="myVertexShader" type="x-shader/x-vertex">
+      
+      attribute vec3 VertexPosition;
+      attribute vec2 VertexTexcoords;
+
+      varying vec2 texCoords;
+
+      void main()  {
+      
+        gl_Position = vec4(VertexPosition, 1.0);
+        texCoords   = VertexTexcoords;
+
+      }
+      
+    </script>
+    
+    <script id="myFragmentShader" type="x-shader/x-fragment">
+      
+      precision highp float;
+      
+      uniform sampler2D myTexture;
+      uniform float Brightness;
+      uniform float Saturation;
+      uniform float Contrast;
+      
+      varying vec2 texCoords;
+
+      void main() {
+        
+        // color de la textura
+        vec3 color     = vec3(texture2D(myTexture,texCoords));
+        
+        // calculo de la saturacion
+        vec3 LumCoeff  = vec3(0.2125, 0.7154, 0.0721);
+        vec3 AvgLumin  = vec3(0.5, 0.5, 0.5);
+        
+        vec3 intensity = vec3(dot(color, LumCoeff));
+        vec3 satColor  = mix(intensity, color, Saturation);
+        vec3 conColor  = mix(AvgLumin, satColor, Contrast);
+        
+        gl_FragColor =  vec4(conColor * Brightness, 1.0);
+      
+      }
+      
+    </script>
+ 
+    <script src="common/gl-matrix-min.js"></script>
+    <script src="common/materiales.js"></script>
+    <script src="common/primitivas.js"></script>
+    <script src="common/comun.js"></script>
+    <script src="postproceso.js"></script>
+
+  </body>
+
+</html>
